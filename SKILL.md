@@ -3,7 +3,7 @@ name: ai-prd
 description: "Generates a complete, structured AI Product Requirements Document (PRD) in Markdown format, covering background, requirements, model selection, prompt engineering, evaluation system, and stability strategy."
 triggers:
   - "PRD"
-  - "需求文档"
+  - "AI需求文档"
   - "AI产品文档"
   - "帮我写PRD"
   - "write a PRD"
@@ -78,9 +78,10 @@ Before generating, confirm you have the following. If any are missing, ask the u
 | 状态图（9.3节） | Generate Mermaid `stateDiagram-v2` for task lifecycle states after the iteration table. |
 | 迭代机制流程图（9.3节） | Generate Mermaid `flowchart TD` for the full iteration loop after the state diagram. |
 | System Prompt 示例 | Generate a realistic, role-specific system prompt using the modular `# ROLE / # BOUNDARY / # WORKFLOW / # OUTPUT FORMAT / # SAFETY` structure |
-| 模型选型对比表 | Fill in 2 realistic candidate models appropriate for the use case |
+| 模型选型对比表 | Fill in 3 realistic candidate models appropriate for the use case |
 | 评测集 Golden Case 示例 | Generate 2–3 concrete example Q&A pairs relevant to the use case |
 | 成本预估公式 | Fill in with realistic token estimates based on the use case type (RAG = large input; copywriting = large output) |
+| 评测指标体系（第八章） | Select and customize evaluation metrics appropriate for the use case from the template table |
 
 ### Mermaid Diagram Rules
 
@@ -112,6 +113,8 @@ Merge logically similar services into one participant when needed (e.g., "AI生�
 - Use `{...}` for decision nodes, `([...])` for start/end terminals, `[...]` for process nodes
 - Always include error/retry branches; never draw the happy path only
 - Max ~20 nodes per diagram; split into sub-diagrams if larger
+- 严格遵循 Mermaid 语法：条件节点使用 `NodeID{标签文本}`，连线使用 `NodeID -->|分支名| NextNodeID[文本]`，不得省略节点 ID 或使用裸文本连线
+- 决策分支必须闭环：每个 `{...}` 节点的所有出边必须最终汇入某个节点或终态 `([...])`，不允许出现无处可去的悬空路径
 
 ### Version Numbering Convention
 
@@ -232,22 +235,19 @@ flowchart TD
 
 **链路说明：**
 - **LLM调用节点**：{列出所有调用大模型的节点，标注模型名称与预期延迟}
-- **工具调用节点**：{列出调用的外部工具/API，如知识库检索、OSS存储、内容安全API}
-- **判断/路由节点**：{描述路由逻辑，如功能模式路由、质量阈值判断}
-- **人工介入节点**：{描述需要人工审核的场景与SLA}
-- **异常处理分支**：{描述超时/失败的重试与降级逻辑}
+- **工具调用节点**：{列出所有工具调用节点，标注工具名称与调用时机}
 
-**图4-1 输入链路（上传 → 安全前置 → 入库）**
+**图4-1 输入链路（用户端 → API网关 → 内容安全服务 → OSS入库）**
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant 用户端 as 用户端
+    participant 商家端 as 商家端/用户端
     participant 前端 as 前端系统
     participant 网关 as API网关
-    participant 安全服务 as 内容安全服务
+    participant 安全 as 内容安全服务
     participant OSS as OSS存储
-    %% 覆盖：用户上传 → 前端预检 → 安全扫描 → OSS入库，含违规拦截分支
+    %% 覆盖：输入预检、格式校验、权限配额验证、内容安全扫描 → OSS入库，含违规拦截分支
     {根据产品具体链路生成，参与者限5个以内}
 ```
 
@@ -302,7 +302,7 @@ sequenceDiagram
 
 ### 5.2 可选模型对比
 
-> 至少评估3个候选模型：模型A（头部闭源大模型）、模型B（开源或国产替代）、模型C（轻量/低成本备选）。根据产品场景选择最相关的3个候选填入。
+> 至少评估3个候选模型：模型A（头部闭源大模型）、模型B（开源或国产替代）、模型C（轻量/低成本备选）。根据产品场景选择最相关的3个候选填入。注意：下表中的示例模型名称仅供参考，应根据生成时的最新主流模型替换。
 
 | 评估维度 | 核心指标 | 模型 A：{模型名} | 模型 B：{模型名} | 模型 C：{模型名} |
 |----------|----------|-----------------|-----------------|-----------------|
@@ -333,8 +333,8 @@ sequenceDiagram
 
 | 模型角色 | 最终选型模型 | 核心入选理由 | 灾备与 Failover 机制 | 月度成本精算预估 |
 |----------|-------------|-------------|---------------------|-----------------|
-| 主模型 | {模型名} | 1. 核心场景表现：在业务定制 Golden Dataset 评测中综合得分最高。2. 功能完备性：原生支持 Tool Calling，结构化 JSON 输出错误率为0%。3. 上下文优势：具备 {X}K 有效上下文。 | 流量首选通道：日常生产环境100%用户默认请求由该模型处理。系统实时监控其响应延迟与429状态码。 | 计算公式：月预测 Token 消耗×{费率}。月度预算：约{X}元/月（基于每日 MAU 均 {X} 轮对话测算）。 |
-| 备用模型 | {模型名} | 1. 低延迟鲁棒性：TTFT 低于 {X}s，极端并发下表现稳定。2. 高性价比互补：API 费率仅为主模型的{X}%，或已完成国产算力本地部署，无断供风险。3. 接口兼容度：API 传参结构与主模型高度对齐，工程平滑切换成本极低。 | 自动化触发 Failover：当主模型触发以下任一红线时，系统无缝感知切换至备用模型：1. 接口连续3次报429/500错误；2. 接口单次响应超时≥{X}s；3. 触发供应商突发停服事故。 | 计算公式：{灾备预计承载流量}×{费率}。月度预算：约{X}元/月（主要作为兜底损耗预算）。 |
+| 主模型 | {模型名} | 1. 核心场景表现：在业务定制 Golden Dataset 评测中综合得分最高。2. 功能完备性：原生支持 Tool Calling，结构化 JSON 输出错误率为0%。3. 上下文优势：具备 {X}K 有效上下文。 | 流量首选通道：日常生产环境100%用户默认请求由该模型处理。系统实时监控其响应延迟与429状态码。 | 精算公式：(月预测 Input Token × Input费率) + (月预测 Output Token × Output费率)。月度总预算：约{X}元/月（基于每日 MAU 均 {X} 轮对话、Input/Output 比约为 {X}:{X} 测算）。 |
+| 备用模型 | {模型名} | 1. 低延迟鲁棒性：TTFT 低于 {X}s，极端并发下表现稳定。2. 高性价比互补：API 费率仅为主模型的{X}%，或已完成国产算力本地部署，无断供风险。3. 接口兼容度：API 传参结构与主模型高度对齐，工程平滑切换成本极低。 | 自动化触发 Failover：当主模型触发以下任一红线时，系统无缝感知切换至备用模型：1. 接口连续3次报429/500错误；2. 接口单次响应超时≥{X}s；3. 触发供应商突发停服事故。 | 精算公式：(灾备预计承载 Input Token × Input费率) + (灾备预计承载 Output Token × Output费率)。月度总预算：约{X}元/月（主要作为兜底损耗预算）。 |
 
 **成本注意事项：**
 1. **输入/输出 Token 比例陷阱：** 本场景属于"{大输入小输出 / 小输入大输出}"类型，成本预估须按工程团队实际压测的 Input/Output 平均比例计算，不能按均价估算。
@@ -539,6 +539,8 @@ sequenceDiagram
 
 > **注意**：Golden Case 中的期望输出须由业务专家人工校对，禁止直接用模型生成的输出充当 Golden Output（会产生"自我验证"的循环偏差）。
 
+### 8.2 评测指标体系
+
 | 评测大类 | 细分评测指标 | 工业级量化计算/评估方法 | 业务实际意义（PM 关注点）|
 |----------|-------------|----------------------|------------------------|
 | **准确性与事实度** | 事实一致性（Faithfulness）| 提取模型回答中的事实三元组，比对参考文本，计算重合比例。 | 考核大模型在知识库（RAG）场景下是否胡编乱造、凭空捏造事实（反幻觉能力）。 |
@@ -584,6 +586,7 @@ sequenceDiagram
 |----------|-------------|----------|------------------------------|------------------|
 | **1. 输入层质控（Input-Side QC）** | 用户 Prompt 拦截与纠偏 | {是/否} | 在请求发送给大模型前，通过硬代码或轻量级过滤模型（如恶意代码检测、敏感词库），对用户的输入进行前置审查。 | 防范安全风险，节省无效 Token 消耗。 |
 | | 上下文精简与注入检查 | {是/否} | 针对 RAG（知识库）或多轮对话场景，系统对召回的切片数据进行相关性评分降序排列，严格限制注入到大模型中的总 Token 长度。 | 降低幻觉率，防止无关上下文干扰判断。 |
+| | 语义缓存与提示词缓存（Context Caching） | {是/否} | 1. **语义缓存**：对高频同质化请求开启语义相似度缓存（阈值 > 0.95），命中则直接返回缓存结果，跳过推理链路。2. **Prompt Cache（MaaS 级）**：对 RAG 稳定 System Prompt / 长 Context 开启供应商侧 Prompt Cache（如 Anthropic / DeepSeek Prompt Caching），缓存 Token 按折扣价计费。 | 降低 30% 以上的 Token 成本；将高频请求 TTFT 压低至 200ms 以内。 |
 | **2. 推理层质控（In-Inference QC）** | 动态参数调节（Decoding Parameters）| {是/否} | 根据业务场景动态配置模型的控制参数：1. 严谨场景（如低代码生成、JSON解析、财务分析）：设定 Temperature = 0，使其输出绝对稳定。2. 创意场景（如文案润色、营销策划）：设定 Temperature = 0.7-0.9，提升表达丰富度。| 平衡稳定性与逻辑的确定性泛化能力。 |
 | | 结构化 Schema 强约束 | {是/否} | 拒绝口头 Prompt 约束，直接在 API 调用层绑定结构化 Schema（如 JSON Schema 校验或 Pydantic 模版），强制模型必须以特定格式吐出数据。 | 保障工程对接式100%能被"因大模型系统崩溃"的格式错误归零。 |
 | **3. 输出层质控（Output-Side QC）** | 格式完备性校验与 Self-Correction | {是/否} | 系统后端在收到大模型返回的数据后，第一步进行自动化格式解析校验。若校验失败，**触发自动重试（Retry）**，并将报错信息作为上下文再次喂给大模型，让其自我修正。 | 提升容错率：自动修复格式完全无感知。 |
@@ -703,11 +706,11 @@ flowchart TD
 
 ## Step 4 — Post-Generation Checklist
 
-After generating the PRD, verify the following before presenting to the user:
+生成 PRD 后，在交付给用户前，逐项核验以下清单：
 
 - [ ] **无遗留占位符：** 所有 `{X}`、`{模型名}`、`{日期}`、`{功能名称}` 均已替换，或标注了 `<!-- 待确认 -->`
 - [ ] **System Prompt 角色具体：** 不是泛化的"AI助手"，而是针对该业务场景的具体角色
-- [ ] **模型选型有两个具体候选：** 根据场景合理推荐（例如：B端RAG场景推荐 GPT-4o vs DeepSeek-V3；创意文案场景可推荐 Claude Sonnet vs Kimi）
+- [ ] **模型选型有三个具体候选：** 根据场景合理推荐，至少覆盖头部闭源、开源/国产替代、轻量低成本三个类型（例如：B端RAG场景推荐 GPT-4o vs DeepSeek-V3 vs Qwen2.5-7B）
 - [ ] **评测集有具体示例：** 至少提供2-3条贴近真实业务的 Golden Case Q&A 示例
 - [ ] **流程图已生成（非占位符）：** 第三章业务流程图为 `flowchart TD`；第四章系统流程图已拆分为3张 `sequenceDiagram`（图X-1/X-2/X-3），每张 ≤5 个参与者；9.3节有 `stateDiagram-v2` 和迭代 `flowchart TD`
 - [ ] **sequenceDiagram 未超过5个参与者：** 检查每张时序图的 `participant` 声明数量，超过则重新拆分
